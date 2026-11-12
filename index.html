@@ -8,9 +8,16 @@
 <meta name="theme-color" content="#0b4f8a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<style>html,body{margin:0;height:100%;background:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center}img{width:96px;height:96px}</style>
+<style>html,body{margin:0;min-height:100%;background:#fff;font-family:sans-serif;color:#0b2a4a}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;min-height:100vh}
+img{width:110px;height:110px}a.b{display:inline-block;background:#0b4f8a;color:#fff;text-decoration:none;padding:14px 28px;border-radius:12px;font-size:18px}p{margin:0;max-width:320px;line-height:1.7;font-size:15px}</style>
 </head><body>
 <img src="icon-192.png" alt="BlueShield">
-<script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});
-location.replace("https://script.google.com/macros/s/AKfycby77T8Q3nj_Gkckds8w8aO94q8esC4gPBWcNwDgrzgxrihGtBEPTu1ye-l2g6O_ItrRLg/exec");</script>
+<a class="b" href="https://script.google.com/macros/s/AKfycby77T8Q3nj_Gkckds8w8aO94q8esC4gPBWcNwDgrzgxrihGtBEPTu1ye-l2g6O_ItrRLg/exec">افتح البرنامج</a>
+<p>لتثبيت البرنامج على جهازك: من قايمة المتصفح اختار «Install app» أو «Add to Home screen».</p>
+<script>
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});
+var standalone=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;
+if(standalone)location.replace("https://script.google.com/macros/s/AKfycby77T8Q3nj_Gkckds8w8aO94q8esC4gPBWcNwDgrzgxrihGtBEPTu1ye-l2g6O_ItrRLg/exec");
+</script>
 </body></html>
