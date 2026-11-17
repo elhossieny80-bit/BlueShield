@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BlueShield</string>
+    <!-- لينك البرنامج المخصوص للأبلكيشن (Apps Script — Anyone) -->
+    <string name="app_url" translatable="false">https://script.google.com/macros/s/AKfycbzRr2f1H_degas0Z--PAxwg4M9fBAfHLhFl4Bdei8NQ-ljeCGQPQV8abDMlXaceGMrieQ/exec</string>
+</resources>
