@@ -343,6 +343,13 @@ public class MainActivity extends Activity {
         /* «PDF على واتساب»: شاشة المشاركة */
         @JavascriptInterface
         public void shareFile(String b64, String name, String mime, String text) {
+            shareTo(b64, name, mime, text, "");
+        }
+
+        /* نفس shareFile، بس بيقول لواتساب يفتح على شات الرقم ده على طول */
+        @JavascriptInterface
+        public void shareTo(String b64, String name, String mime, String text, String phone) {
+            final String ph = phone == null ? "" : phone.replaceAll("[^0-9]", "");
             final String fname = safeName(name);
             final String type = (mime == null || mime.isEmpty()) ? "application/octet-stream" : mime;
             try {
@@ -355,7 +362,7 @@ public class MainActivity extends Activity {
                     fo.write(data);
                 }
                 final Uri uri = ShareProvider.uriFor(fname);
-                runOnUiThread(() -> shareUri(uri, type, text));
+                runOnUiThread(() -> shareUri(uri, type, text, ph));
             } catch (Exception e) {
                 runOnUiThread(() -> Toast.makeText(MainActivity.this, "مقدرتش أجهّز الملف للمشاركة.", Toast.LENGTH_LONG).show());
             }
@@ -415,8 +422,10 @@ public class MainActivity extends Activity {
         return n == 1 ? found : null;
     }
 
-    private void shareUri(Uri uri, String type, String text) {
+    private void shareUri(Uri uri, String type, String text, String phone) {
         Intent send = new Intent(Intent.ACTION_SEND);
+        /* "jid": طريقة واتساب غير الرسمية لفتح شات رقم معيّن. لو واتساب تجاهلها، بيظهر اختيار جهة الاتصال عادي. */
+        if (phone != null && phone.length() >= 10) send.putExtra("jid", phone + "@s.whatsapp.net");
         send.setType(type);
         send.putExtra(Intent.EXTRA_STREAM, uri);
         if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
@@ -536,7 +545,7 @@ public class MainActivity extends Activity {
         try {
             BiometricPrompt bp = new BiometricPrompt.Builder(this)
                     .setTitle(enc ? "تفعيل الدخول بالبصمة" : "الدخول بالبصمة")
-                    .setSubtitle(enc ? "حط صباعك علشان تفعّل البصمة" : "حط صباعك علشان تدخل البرنامج")
+                    .setSubtitle(enc ? "استخدم البصمة لتفعيل الدخول بالبصمة" : "استخدم البصمة للدخول إلى البرنامج")
                     .setNegativeButton("إلغاء", getMainExecutor(), (d, w) -> bioSet("{\"err\":\"cancel\"}"))
                     .build();
             bp.authenticate(new BiometricPrompt.CryptoObject(c), new CancellationSignal(), getMainExecutor(),
