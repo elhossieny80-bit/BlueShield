@@ -1,6 +1,15 @@
 package com.blueshield.invoices;
 
 import android.Manifest;
+import android.app.KeyguardManager;
+import android.content.ClipData;
+import android.content.SharedPreferences;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.biometrics.BiometricPrompt;
+import android.os.CancellationSignal;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyPermanentlyInvalidatedException;
+import android.security.keystore.KeyProperties;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
@@ -45,6 +54,15 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
+import org.json.JSONObject;
 
 /**
  * أبلكيشن BlueShield: بيفتح البرنامج (Apps Script) جوه شاشة كاملة،
@@ -320,6 +338,244 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isApp() {
             return true;
+        }
+
+        /* «PDF على واتساب»: شاشة المشاركة */
+        @JavascriptInterface
+        public void shareFile(String b64, String name, String mime, String text) {
+            final String fname = safeName(name);
+            final String type = (mime == null || mime.isEmpty()) ? "application/octet-stream" : mime;
+            try {
+                byte[] data = Base64.decode(b64, Base64.DEFAULT);
+                File d = ShareProvider.dir(MainActivity.this);
+                File[] old = d.listFiles();
+                if (old != null) for (File o : old) o.delete();
+                File f = new File(d, fname);
+                try (FileOutputStream fo = new FileOutputStream(f)) {
+                    fo.write(data);
+                }
+                final Uri uri = ShareProvider.uriFor(fname);
+                runOnUiThread(() -> shareUri(uri, type, text));
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "مقدرتش أجهّز الملف للمشاركة.", Toast.LENGTH_LONG).show());
+            }
+        }
+
+        /* الدخول بالبصمة */
+        @JavascriptInterface
+        public boolean bioAvail() {
+            return bioCan();
+        }
+
+        @JavascriptInterface
+        public String bioUser() {
+            return prefs().getString("bio_n", "");
+        }
+
+        @JavascriptInterface
+        public void bioClear() {
+            bioWipe();
+        }
+
+        @JavascriptInterface
+        public String bioResult() {
+            synchronized (MainActivity.this) {
+                String r = bioRes;
+                if (!r.isEmpty()) bioRes = "";
+                return r;
+            }
+        }
+
+        @JavascriptInterface
+        public void bioSave(String n, String p) {
+            synchronized (MainActivity.this) { bioRes = ""; }
+            final String nn = n == null ? "" : n, pp = p == null ? "" : p;
+            runOnUiThread(() -> bioStart(true, nn, pp));
+        }
+
+        @JavascriptInterface
+        public void bioOpen() {
+            synchronized (MainActivity.this) { bioRes = ""; }
+            runOnUiThread(() -> bioStart(false, null, null));
+        }
+    }
+
+    /* ---------- المشاركة ---------- */
+    private String waPkg() {
+        String found = null;
+        int n = 0;
+        for (String pk : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) {
+            try {
+                getPackageManager().getPackageInfo(pk, 0);
+                found = pk;
+                n++;
+            } catch (Exception ignored) {
+            }
+        }
+        return n == 1 ? found : null;
+    }
+
+    private void shareUri(Uri uri, String type, String text) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(type);
+        send.putExtra(Intent.EXTRA_STREAM, uri);
+        if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
+        send.setClipData(ClipData.newRawUri("", uri));
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        String wa = waPkg();
+        if (wa != null) {
+            try {
+                Intent d = new Intent(send);
+                d.setPackage(wa);
+                startActivity(d);
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+        try {
+            Intent ch = Intent.createChooser(send, "ابعت الملف بـ…");
+            ch.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(ch);
+        } catch (Exception e) {
+            Toast.makeText(this, "مفيش أبلكيشن على الموبايل يقدر يبعت الملف.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /* ---------- البصمة ----------
+       الباسورد بيتشفّر بمفتاح جوه الموبايل (Android Keystore) مايتفتحش غير ببصمة مسجلة.
+       لو حد ضاف بصمة جديدة على الموبايل، المفتاح بيتلغي لوحده والبصمة لازم تتفعّل تاني. */
+    private static final String BIO_KEY = "bs_bio_key";
+    private String bioRes = "";
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences("bs_app", MODE_PRIVATE);
+    }
+
+    private synchronized void bioSet(String r) {
+        bioRes = r;
+    }
+
+    @SuppressWarnings("deprecation")
+    private boolean bioCan() {
+        if (Build.VERSION.SDK_INT < 28) return false;
+        try {
+            KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+            if (km == null || !km.isDeviceSecure()) return false;
+            if (Build.VERSION.SDK_INT >= 30) {
+                BiometricManager bm = getSystemService(BiometricManager.class);
+                return bm != null && bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS;
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                BiometricManager bm = getSystemService(BiometricManager.class);
+                return bm != null && bm.canAuthenticate() == BiometricManager.BIOMETRIC_SUCCESS;
+            }
+            return getPackageManager().hasSystemFeature(PackageManager.FEATURE_FINGERPRINT);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void bioWipe() {
+        prefs().edit().remove("bio_n").remove("bio_c").remove("bio_iv").apply();
+        try {
+            KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+            ks.load(null);
+            if (ks.containsAlias(BIO_KEY)) ks.deleteEntry(BIO_KEY);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private SecretKey bioKey(boolean fresh) throws Exception {
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        if (fresh && ks.containsAlias(BIO_KEY)) ks.deleteEntry(BIO_KEY);
+        if (!ks.containsAlias(BIO_KEY)) {
+            if (!fresh) throw new Exception("no key");
+            KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+            kg.init(new KeyGenParameterSpec.Builder(BIO_KEY, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .setUserAuthenticationRequired(true)
+                    .setInvalidatedByBiometricEnrollment(true)
+                    .build());
+            kg.generateKey();
+        }
+        return (SecretKey) ks.getKey(BIO_KEY, null);
+    }
+
+    @android.annotation.TargetApi(28)
+    private void bioStart(final boolean enc, final String n, final String p) {
+        if (Build.VERSION.SDK_INT < 28 || !bioCan()) {
+            bioSet("{\"err\":\"x\"}");
+            return;
+        }
+        final Cipher c;
+        try {
+            c = Cipher.getInstance("AES/GCM/NoPadding");
+            if (enc) {
+                c.init(Cipher.ENCRYPT_MODE, bioKey(true));
+            } else {
+                String iv = prefs().getString("bio_iv", null);
+                if (iv == null) throw new Exception("no data");
+                c.init(Cipher.DECRYPT_MODE, bioKey(false), new GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)));
+            }
+        } catch (KeyPermanentlyInvalidatedException e) {
+            bioWipe();
+            bioSet("{\"err\":\"gone\"}");
+            return;
+        } catch (Exception e) {
+            if (!enc) {
+                bioWipe();
+                bioSet("{\"err\":\"gone\"}");
+            } else {
+                bioSet("{\"err\":\"x\"}");
+            }
+            return;
+        }
+        try {
+            BiometricPrompt bp = new BiometricPrompt.Builder(this)
+                    .setTitle(enc ? "تفعيل الدخول بالبصمة" : "الدخول بالبصمة")
+                    .setSubtitle(enc ? "حط صباعك علشان تفعّل البصمة" : "حط صباعك علشان تدخل البرنامج")
+                    .setNegativeButton("إلغاء", getMainExecutor(), (d, w) -> bioSet("{\"err\":\"cancel\"}"))
+                    .build();
+            bp.authenticate(new BiometricPrompt.CryptoObject(c), new CancellationSignal(), getMainExecutor(),
+                    new BiometricPrompt.AuthenticationCallback() {
+                        @Override
+                        public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r) {
+                            try {
+                                Cipher cc = r.getCryptoObject().getCipher();
+                                if (enc) {
+                                    byte[] ct = cc.doFinal(p.getBytes(StandardCharsets.UTF_8));
+                                    prefs().edit().putString("bio_n", n)
+                                            .putString("bio_c", Base64.encodeToString(ct, Base64.NO_WRAP))
+                                            .putString("bio_iv", Base64.encodeToString(cc.getIV(), Base64.NO_WRAP)).apply();
+                                    bioSet("{\"ok\":true}");
+                                } else {
+                                    byte[] pt = cc.doFinal(Base64.decode(prefs().getString("bio_c", ""), Base64.NO_WRAP));
+                                    JSONObject o = new JSONObject();
+                                    o.put("ok", true);
+                                    o.put("n", prefs().getString("bio_n", ""));
+                                    o.put("p", new String(pt, StandardCharsets.UTF_8));
+                                    bioSet(o.toString());
+                                }
+                            } catch (Exception e) {
+                                if (!enc) {
+                                    bioWipe();
+                                    bioSet("{\"err\":\"gone\"}");
+                                } else {
+                                    bioSet("{\"err\":\"x\"}");
+                                }
+                            }
+                        }
+
+                        @Override
+                        public void onAuthenticationError(int code, CharSequence msg) {
+                            bioSet("{\"err\":\"cancel\"}");
+                        }
+                    });
+        } catch (Exception e) {
+            bioSet("{\"err\":\"x\"}");
         }
     }
 
